@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cola Round Robin</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .queue-visualization {
+            margin-top: 30px;
+            border: 2px solid #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .queue-title {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .queue {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .queue-step {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            font-weight: bold;
+        }
+        .processes-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .process {
+            padding: 8px 12px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+            position: relative;
+        }
+        .process-id {
+            font-size: 14px;
+        }
+        .process-time {
+            font-size: 12px;
+            margin-top: 3px;
+        }
+        .process-executing {
+            box-shadow: 0 0 0 3px #2c3e50;
+            transform: scale(1.05);
+        }
+        .process-completed {
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+        .arrow {
+            font-size: 20px;
+            margin: 0 5px;
+            color: #7f8c8d;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .stats {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Visualización de Cola Round Robin (Quantum=2)</h1>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #3498db;"></div>
+                <span>PID 1001 (Ráfaga:5)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #2ecc71;"></div>
+                <span>PID 1002 (Ráfaga:3)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #f1c40f;"></div>
+                <span>PID 1003 (Ráfaga:4)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #9b59b6;"></div>
+                <span>PID 1004 (Ráfaga:2)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #e74c3c;"></div>
+                <span>PID 1005 (Ráfaga:6)</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="prevBtn">Anterior</button>
+            <button id="nextBtn">Siguiente</button>
+            <button id="playBtn">Reproducir</button>
+            <button id="resetBtn">Reiniciar</button>
+        </div>
+        
+        <div class="queue-visualization">
+            <div class="queue-title">
+                <span>Proceso en ejecución: <span id="currentProcess">Ninguno</span></span>
+                <span>Tiempo: <span id="currentTime">0</span>s</span>
+            </div>
+            <div class="queue" id="queueContainer"></div>
+        </div>
+        
+        <div class="stats" id="statsContainer"></div>
+    </div>
+
+    <script>
+        // Datos de los procesos
+        const processes = [
+            { pid: 1001, burstTime: 5, originalBurst: 5, color: '#3498db' },
+            { pid: 1002, burstTime: 3, originalBurst: 3, color: '#2ecc71' },
+            { pid: 1003, burstTime: 4, originalBurst: 4, color: '#f1c40f' },
+            { pid: 1004, burstTime: 2, originalBurst: 2, color: '#9b59b6' },
+            { pid: 1005, burstTime: 6, originalBurst: 6, color: '#e74c3c' }
+        ];
+
+        // Estado de la simulación
+        let currentTime = 0;
+        let queue = [...processes];
+        let completedProcesses = [];
+        let executionLog = [];
+        const quantum = 2;
+        let intervalId = null;
+        let currentExecuting = null;
+
+        // Inicializar la visualización
+        function init() {
+            renderQueue();
+            renderStats();
+            updateControls();
+        }
+
+        // Avanzar un paso en la simulación
+        function nextStep() {
+            if (queue.length === 0) return;
+
+            currentExecuting = queue.shift();
+            const executionTime = Math.min(quantum, currentExecuting.burstTime);
+            
+            // Registrar estado antes de la ejecución
+            executionLog.push({
+                time: currentTime,
+                queueBefore: [...queue],
+                executing: currentExecuting.pid,
+                executionTime: executionTime,
+                burstBefore: currentExecuting.burstTime
+            });
+            
+            // Actualizar proceso
+            currentExecuting.burstTime -= executionTime;
+            currentTime += executionTime;
+            
+            if (currentExecuting.burstTime > 0) {
+                // Volver a encolar si aún le queda tiempo
+                queue.push(currentExecuting);
+            } else {
+                // Registrar proceso completado
+                completedProcesses.push({
+                    ...currentExecuting,
+                    completionTime: currentTime
+                });
+            }
+            
+            renderQueue();
+            renderStats();
+            updateControls();
+            
+            // Resetear proceso en ejecución después de un breve tiempo (para efecto visual)
+            setTimeout(() => {
+                currentExecuting = null;
+                renderQueue();
+            }, 800);
+        }
+
+        // Retroceder un paso
+        function prevStep() {
+            if (executionLog.length === 0) return;
+            
+            const lastExecution = executionLog.pop();
+            currentTime = lastExecution.time;
+            
+            // Revertir el proceso
+            const processIndex = processes.findIndex(p => p.pid === lastExecution.executing);
+            processes[processIndex].burstTime = lastExecution.burstBefore;
+            
+            // Revertir la cola
+            queue = [...lastExecution.queueBefore];
+            
+            // Revertir procesos completados
+            if (processes[processIndex].burstTime === lastExecution.burstBefore - lastExecution.executionTime) {
+                completedProcesses.pop();
+            }
+            
+            renderQueue();
+            renderStats();
+            updateControls();
+        }
+
+        // Renderizar la cola
+        function renderQueue() {
+    const queueContainer = document.getElementById('queueContainer');
+    const currentTimeElement = document.getElementById('currentTime');
+    const currentProcessElement = document.getElementById('currentProcess');
+    
+    // Limpiar el contenedor primero
+    queueContainer.innerHTML = '';
+    currentTimeElement.textContent = currentTime;
+    
+    // Actualizar proceso actual
+    if (currentExecuting) {
+        currentProcessElement.textContent = `PID ${currentExecuting.pid} (${Math.min(quantum, currentExecuting.burstTime + quantum)}s)`;
+        currentProcessElement.style.color = currentExecuting.color;
+    } else {
+        currentProcessElement.textContent = 'Ninguno';
+        currentProcessElement.style.color = '#333';
+    }
+
+    // Mostrar historial de ejecución
+    executionLog.forEach((step, index) => {
+        const stepElement = document.createElement('div');
+        stepElement.className = 'queue-step';
+        
+        const header = document.createElement('div');
+        header.className = 'step-header';
+        header.innerHTML = `
+            <span>Paso ${index + 1} (Tiempo: ${step.time}-${step.time + step.executionTime}s)</span>
+            <span>Ejecutando: PID ${step.executing} (${step.executionTime}s)</span>
+        `;
+        stepElement.appendChild(header);
+        
+        const processesContainer = document.createElement('div');
+        processesContainer.className = 'processes-container';
+        
+        // Proceso en ejecución
+        const processData = processes.find(p => p.pid === step.executing);
+        if (processData) {
+            const executingProcess = document.createElement('div');
+            executingProcess.className = 'process process-executing';
+            executingProcess.style.backgroundColor = processData.color;
+            executingProcess.innerHTML = `
+                <div class="process-id">PID ${step.executing}</div>
+                <div class="process-time">Ejecutando (${step.executionTime}s)</div>
+            `;
+            processesContainer.appendChild(executingProcess);
+            
+            const arrow = document.createElement('span');
+            arrow.className = 'arrow';
+            arrow.textContent = '→';
+            processesContainer.appendChild(arrow);
+        }
+        
+        // Cola antes de la ejecución
+        step.queueBefore.forEach(proc => {
+            const processInfo = processes.find(p => p.pid === proc.pid);
+            if (processInfo) {
+                const processElement = document.createElement('div');
+                processElement.className = 'process';
+                processElement.style.backgroundColor = processInfo.color;
+                processElement.innerHTML = `
+                    <div class="process-id">PID ${proc.pid}</div>
+                    <div class="process-time">${proc.burstTime}s restantes</div>
+                `;
+                processesContainer.appendChild(processElement);
+            }
+        });
+        
+        stepElement.appendChild(processesContainer);
+        queueContainer.appendChild(stepElement);
+    });
+    
+    // Mostrar estado actual si hay procesos pendientes
+    if (queue.length > 0 || (executionLog.length > 0 && completedProcesses.length < processes.length)) {
+        const currentStep = document.createElement('div');
+        currentStep.className = 'queue-step';
+        
+        const header = document.createElement('div');
+        header.className = 'step-header';
+        header.innerHTML = `
+            <span>Estado actual (Tiempo: ${currentTime}s)</span>
+            <span>${queue.length > 0 ? `Procesos en cola: ${queue.length}` : 'Esperando nuevos procesos'}</span>
+        `;
+        currentStep.appendChild(header);
+        
+        const processesContainer = document.createElement('div');
+        processesContainer.className = 'processes-container';
+        
+        if (currentExecuting) {
+            const executingProcess = document.createElement('div');
+            executingProcess.className = 'process process-executing';
+            executingProcess.style.backgroundColor = currentExecuting.color;
+            executingProcess.innerHTML = `
+                <div class="process-id">PID ${currentExecuting.pid}</div>
+                <div class="process-time">Ejecutando (${Math.min(quantum, currentExecuting.burstTime + quantum)}s)</div>
+            `;
+            processesContainer.appendChild(executingProcess);
+            
+            const arrow = document.createElement('span');
+            arrow.className = 'arrow';
+            arrow.textContent = '→';
+            processesContainer.appendChild(arrow);
+        }
+        
+        queue.forEach(proc => {
+            const processElement = document.createElement('div');
+            processElement.className = 'process';
+            processElement.style.backgroundColor = proc.color;
+            processElement.innerHTML = `
+                <div class="process-id">PID ${proc.pid}</div>
+                <div class="process-time">${proc.burstTime}s restantes</div>
+            `;
+            processesContainer.appendChild(processElement);
+        });
+        
+        currentStep.appendChild(processesContainer);
+        queueContainer.appendChild(currentStep);
+    }
+    
+    // Mostrar procesos completados
+    if (completedProcesses.length > 0) {
+        const completedStep = document.createElement('div');
+        completedStep.className = 'queue-step';
+        
+        const header = document.createElement('div');
+        header.className = 'step-header';
+        header.textContent = 'Procesos completados';
+        completedStep.appendChild(header);
+        
+        const processesContainer = document.createElement('div');
+        processesContainer.className = 'processes-container';
+        
+        completedProcesses.forEach(proc => {
+            const processElement = document.createElement('div');
+            processElement.className = 'process process-completed';
+            processElement.style.backgroundColor = proc.color;
+            processElement.innerHTML = `
+                <div class="process-id">PID ${proc.pid}</div>
+                <div class="process-time">Completado en ${proc.completionTime || currentTime}s</div>
+            `;
+            processesContainer.appendChild(processElement);
+        });
+        
+        completedStep.appendChild(processesContainer);
+        queueContainer.appendChild(completedStep);
+    }
+}
+        // Renderizar estadísticas
+        function renderStats() {
+            const statsContainer = document.getElementById('statsContainer');
+            statsContainer.innerHTML = '';
+            
+            // Estadísticas generales
+            const generalStats = document.createElement('div');
+            generalStats.className = 'stat-card';
+            generalStats.innerHTML = `
+                <h3>Estadísticas Generales</h3>
+                <p>Tiempo total: ${currentTime}s</p>
+                <p>Procesos completados: ${completedProcesses.length}/${processes.length}</p>
+                <p>Quantum: ${quantum}s</p>
+                <p>Procesos en cola: ${queue.length}</p>
+            `;
+            statsContainer.appendChild(generalStats);
+            
+            // Estadísticas por proceso
+            processes.forEach(process => {
+                const processStats = document.createElement('div');
+                processStats.className = 'stat-card';
+                
+                const executions = executionLog.filter(e => e.executing === process.pid);
+                const totalExecutionTime = executions.reduce((sum, e) => sum + e.executionTime, 0);
+                const waitTime = currentTime - totalExecutionTime - (process.burstTime || 0);
+                
+                let status = 'En cola';
+                if (process.burstTime === 0) {
+                    status = 'Completado';
+                } else if (executions.length > 0) {
+                    status = 'En espera';
+                }
+                
+                processStats.innerHTML = `
+                    <h3 style="color:${process.color}">PID ${process.pid}</h3>
+                    <p>Estado: ${status}</p>
+                    <p>Tiempo ejecutado: ${totalExecutionTime}s</p>
+                    <p>Tiempo de espera: ${waitTime}s</p>
+                    <p>Tiempo restante: ${process.burstTime || 0}s</p>
+                    ${process.burstTime === 0 ? `<p>Tiempo de retorno: ${executions.reduce((sum, e) => sum + e.executionTime, 0)}s</p>` : ''}
+                `;
+                
+                statsContainer.appendChild(processStats);
+            });
+        }
+
+        // Actualizar controles
+        function updateControls() {
+            document.getElementById('prevBtn').disabled = executionLog.length === 0;
+            document.getElementById('nextBtn').disabled = queue.length === 0 && completedProcesses.length < processes.length;
+        }
+
+        // Reproducir automáticamente
+        function playSimulation() {
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+                document.getElementById('playBtn').textContent = 'Reproducir';
+                return;
+            }
+            
+            document.getElementById('playBtn').textContent = 'Pausar';
+            intervalId = setInterval(() => {
+                if (queue.length === 0 && completedProcesses.length === processes.length) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+                    document.getElementById('playBtn').textContent = 'Reproducir';
+                    return;
+                }
+                nextStep();
+            }, 1500);
+        }
+
+        // Reiniciar simulación
+        function resetSimulation() {
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+                document.getElementById('playBtn').textContent = 'Reproducir';
+            }
+            
+            currentTime = 0;
+            queue = [...processes];
+            completedProcesses = [];
+            executionLog = [];
+            currentExecuting = null;
+            
+            // Restaurar tiempos de ráfaga
+            processes.forEach(p => {
+                p.burstTime = p.originalBurst;
+            });
+            
+            renderQueue();
+            renderStats();
+            updateControls();
+        }
+
+        // Event listeners
+        document.getElementById('nextBtn').addEventListener('click', nextStep);
+        document.getElementById('prevBtn').addEventListener('click', prevStep);
+        document.getElementById('playBtn').addEventListener('click', playSimulation);
+        document.getElementById('resetBtn').addEventListener('click', resetSimulation);
+
+        // Inicializar
+        init();
+    </script>
+</body>
+</html>
